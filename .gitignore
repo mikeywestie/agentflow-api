@@ -1,0 +1,13 @@
+target/
+.idea/
+*.iml
+
+.env
+.DS_Store
+
+logs/
+*.log
+
+application-local.properties
+
+node_modules/

@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: agentflow-api
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/agentflow_db}
+    username: ${DATABASE_USERNAME:agentflow_user}
+    password: ${DATABASE_PASSWORD:agentflow_pass}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+  flyway:
+    enabled: true
+
+server:
+  port: ${PORT:8080}
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:change-this-secret-to-at-least-32-characters-long}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  cors:
+    allowed-origins: ${FRONTEND_URL:http://localhost:5173}
+  ai:
+    gemini-api-key: ${GEMINI_API_KEY:}
+    gemini-model: ${GEMINI_MODEL:gemini-1.5-flash}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

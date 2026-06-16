@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: agentflow-postgres
+    environment:
+      POSTGRES_DB: agentflow_db
+      POSTGRES_USER: agentflow_user
+      POSTGRES_PASSWORD: agentflow_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - agentflow-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  agentflow-postgres-data:
