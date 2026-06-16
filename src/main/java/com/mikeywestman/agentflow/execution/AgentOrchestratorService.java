@@ -3,6 +3,7 @@ package com.mikeywestman.agentflow.execution;
 import com.mikeywestman.agentflow.agent.AgentEntity;
 import com.mikeywestman.agentflow.workflow.WorkflowEntity;
 import com.mikeywestman.agentflow.workflow.WorkflowRepository;
+import com.mikeywestman.agentflow.workflow.WorkflowStepEntity;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,45 +31,124 @@ public class AgentOrchestratorService {
                 .startedAt(LocalDateTime.now())
                 .build();
 
+        List<WorkflowStepEntity> steps = workflow.getSteps();
         String currentInput = request.request();
+        boolean failed = false;
+        String failureMessage = null;
 
-        try {
-            for (var step : workflow.getSteps()) {
-                AgentEntity agent = step.getAgent();
+        for (int i = 0; i < steps.size(); i++) {
+            AgentEntity agent = steps.get(i).getAgent();
+            LocalDateTime startedAt = LocalDateTime.now();
 
-                LocalDateTime startedAt = LocalDateTime.now();
-
+            try {
                 String output = generateWithRetry(agent, currentInput);
-
                 LocalDateTime completedAt = LocalDateTime.now();
 
-                AgentRunEntity run = AgentRunEntity.builder()
-                        .execution(execution)
-                        .agent(agent)
-                        .agentName(agent.getName())
-                        .agentType(agent.getType())
-                        .input(currentInput)
-                        .output(output)
-                        .status(ExecutionStatus.COMPLETED)
-                        .startedAt(startedAt)
-                        .completedAt(completedAt)
-                        .build();
+                AgentRunEntity run = buildAgentRun(
+                        execution,
+                        agent,
+                        currentInput,
+                        output,
+                        ExecutionStatus.COMPLETED,
+                        startedAt,
+                        completedAt
+                );
 
                 execution.getAgentRuns().add(run);
                 currentInput = output;
-            }
+            } catch (RuntimeException ex) {
+                failed = true;
+                failureMessage = cleanFailureMessage(ex.getMessage());
+                LocalDateTime completedAt = LocalDateTime.now();
 
+                AgentRunEntity failedRun = buildAgentRun(
+                        execution,
+                        agent,
+                        currentInput,
+                        "Agent failed after retries: " + failureMessage,
+                        ExecutionStatus.FAILED,
+                        startedAt,
+                        completedAt
+                );
+
+                execution.getAgentRuns().add(failedRun);
+                addSkippedRuns(execution, steps, i + 1, failureMessage);
+                break;
+            }
+        }
+
+        execution.setCompletedAt(LocalDateTime.now());
+
+        if (!failed) {
             execution.setFinalOutput(currentInput);
             execution.setStatus(ExecutionStatus.COMPLETED);
-            execution.setCompletedAt(LocalDateTime.now());
-
-        } catch (RuntimeException ex) {
-            execution.setFinalOutput("Execution failed: " + ex.getMessage());
+        } else if (hasCompletedAgentRun(execution)) {
+            execution.setFinalOutput(
+                    "Execution partially completed.\n\n" +
+                            "Last successful output:\n" +
+                            currentInput +
+                            "\n\nFailure reason:\n" +
+                            failureMessage
+            );
+            execution.setStatus(ExecutionStatus.PARTIAL_SUCCESS);
+        } else {
+            execution.setFinalOutput("Execution failed before any agent completed: " + failureMessage);
             execution.setStatus(ExecutionStatus.FAILED);
-            execution.setCompletedAt(LocalDateTime.now());
         }
 
         return toResponse(executionRepository.save(execution));
+    }
+
+    private AgentRunEntity buildAgentRun(
+            ExecutionEntity execution,
+            AgentEntity agent,
+            String input,
+            String output,
+            ExecutionStatus status,
+            LocalDateTime startedAt,
+            LocalDateTime completedAt
+    ) {
+        return AgentRunEntity.builder()
+                .execution(execution)
+                .agent(agent)
+                .agentName(agent.getName())
+                .agentType(agent.getType())
+                .input(input == null ? "" : input)
+                .output(output)
+                .status(status)
+                .startedAt(startedAt)
+                .completedAt(completedAt)
+                .build();
+    }
+
+    private void addSkippedRuns(
+            ExecutionEntity execution,
+            List<WorkflowStepEntity> steps,
+            int startIndex,
+            String failureMessage
+    ) {
+        for (int i = startIndex; i < steps.size(); i++) {
+            AgentEntity skippedAgent = steps.get(i).getAgent();
+            LocalDateTime timestamp = LocalDateTime.now();
+
+            AgentRunEntity skippedRun = buildAgentRun(
+                    execution,
+                    skippedAgent,
+                    "",
+                    "Skipped because a previous agent failed: " + failureMessage,
+                    ExecutionStatus.SKIPPED,
+                    timestamp,
+                    timestamp
+            );
+
+            execution.getAgentRuns().add(skippedRun);
+        }
+    }
+
+    private boolean hasCompletedAgentRun(ExecutionEntity execution) {
+        return execution.getAgentRuns()
+                .stream()
+                .anyMatch(run -> run.getStatus() == ExecutionStatus.COMPLETED);
     }
 
     private String generateWithRetry(AgentEntity agent, String input) {
@@ -90,7 +170,7 @@ public class AgentOrchestratorService {
                 );
 
                 if (attempt < 3) {
-                    sleepBeforeRetry();
+                    sleepBeforeRetry(ex);
                 }
             }
         }
@@ -98,13 +178,41 @@ public class AgentOrchestratorService {
         throw lastException;
     }
 
-    private void sleepBeforeRetry() {
+    private void sleepBeforeRetry(RuntimeException ex) {
         try {
-            Thread.sleep(5000);
-        } catch (InterruptedException ex) {
+            Thread.sleep(resolveRetryDelayMillis(ex));
+        } catch (InterruptedException interruptedException) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("AI retry interrupted", ex);
+            throw new RuntimeException("AI retry interrupted", interruptedException);
         }
+    }
+
+    private long resolveRetryDelayMillis(RuntimeException ex) {
+        String message = ex.getMessage();
+
+        if (message == null) {
+            return 5000;
+        }
+
+        if (message.contains("429") || message.contains("Too Many Requests") || message.contains("RESOURCE_EXHAUSTED")) {
+            return 30000;
+        }
+
+        if (message.contains("503") || message.contains("Service Unavailable") || message.contains("UNAVAILABLE")) {
+            return 10000;
+        }
+
+        return 5000;
+    }
+
+    private String cleanFailureMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return "AI provider call failed.";
+        }
+
+        return message.length() > 1000
+                ? message.substring(0, 1000) + "..."
+                : message;
     }
 
     @Transactional(readOnly = true)
