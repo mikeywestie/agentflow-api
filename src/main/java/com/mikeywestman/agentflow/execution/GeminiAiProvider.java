@@ -1,22 +1,25 @@
 package com.mikeywestman.agentflow.execution;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.util.List;
 import java.util.Map;
 
-@Primary
 @Service
 public class GeminiAiProvider implements AiProvider {
 
     private final RestClient restClient;
     private final String apiKey;
+    private final String model;
 
-    public GeminiAiProvider(@Value("${gemini.api-key:}") String apiKey) {
+    public GeminiAiProvider(
+            @Value("${app.ai.gemini-api-key:}") String apiKey,
+            @Value("${app.ai.gemini-model:gemini-2.5-flash-lite}") String model
+    ) {
         this.apiKey = apiKey;
+        this.model = model;
         this.restClient = RestClient.builder()
                 .baseUrl("https://generativelanguage.googleapis.com")
                 .build();
@@ -45,7 +48,7 @@ public class GeminiAiProvider implements AiProvider {
         );
 
         Map response = restClient.post()
-                .uri("/v1beta/models/gemini-2.5-flash-lite:generateContent?key={apiKey}", apiKey)
+                .uri("/v1beta/models/{model}:generateContent?key={apiKey}", model, apiKey)
                 .body(body)
                 .retrieve()
                 .body(Map.class);
