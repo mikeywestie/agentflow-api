@@ -35,8 +35,14 @@ public class AgentOrchestratorService {
         try {
             for (var step : workflow.getSteps()) {
                 AgentEntity agent = step.getAgent();
+
                 LocalDateTime startedAt = LocalDateTime.now();
-                String output = aiProvider.generate(agent.getSystemPrompt(), currentInput);
+
+                String output = aiProvider.generate(
+                        agent.getSystemPrompt(),
+                        currentInput
+                );
+
                 LocalDateTime completedAt = LocalDateTime.now();
 
                 AgentRunEntity run = AgentRunEntity.builder()
@@ -58,6 +64,7 @@ public class AgentOrchestratorService {
             execution.setFinalOutput(currentInput);
             execution.setStatus(ExecutionStatus.COMPLETED);
             execution.setCompletedAt(LocalDateTime.now());
+
         } catch (RuntimeException ex) {
             execution.setFinalOutput("Execution failed: " + ex.getMessage());
             execution.setStatus(ExecutionStatus.FAILED);
@@ -67,16 +74,20 @@ public class AgentOrchestratorService {
         return toResponse(executionRepository.save(execution));
     }
 
+    @Transactional(readOnly = true)
     public List<ExecutionResponse> findLatest() {
-        return executionRepository.findTop20ByOrderByStartedAtDesc().stream()
+        return executionRepository.findLatestWithWorkflow()
+                .stream()
                 .map(this::toResponse)
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public ExecutionResponse findById(UUID id) {
-        return executionRepository.findById(id)
-                .map(this::toResponse)
+        ExecutionEntity execution = executionRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Execution not found: " + id));
+
+        return toResponse(execution);
     }
 
     private WorkflowEntity resolveWorkflow(UUID workflowId) {
