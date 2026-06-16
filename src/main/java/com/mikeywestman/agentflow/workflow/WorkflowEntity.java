@@ -31,7 +31,12 @@ public class WorkflowEntity extends BaseEntity {
     private boolean enabled;
 
     @Builder.Default
-    @OneToMany(mappedBy = "workflow", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(
+        mappedBy = "workflow",
+        cascade = CascadeType.ALL,
+        orphanRemoval = true,
+        fetch = FetchType.EAGER
+)
     @OrderBy("stepOrder ASC")
     private List<WorkflowStepEntity> steps = new ArrayList<>();
 }

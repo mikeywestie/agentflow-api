@@ -24,7 +24,7 @@ public class WorkflowStepEntity {
     @JoinColumn(name = "workflow_id")
     private WorkflowEntity workflow;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "agent_id")
     private AgentEntity agent;
 
