@@ -3,5 +3,6 @@ package com.mikeywestman.agentflow.execution;
 public enum ExecutionStatus {
     RUNNING,
     COMPLETED,
-    FAILED
+    FAILED,
+    PARTIAL_SUCCESS
 }

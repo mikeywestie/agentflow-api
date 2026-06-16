@@ -38,10 +38,7 @@ public class AgentOrchestratorService {
 
                 LocalDateTime startedAt = LocalDateTime.now();
 
-                String output = aiProvider.generate(
-                        agent.getSystemPrompt(),
-                        currentInput
-                );
+                String output = generateWithRetry(agent, currentInput);
 
                 LocalDateTime completedAt = LocalDateTime.now();
 
@@ -72,6 +69,42 @@ public class AgentOrchestratorService {
         }
 
         return toResponse(executionRepository.save(execution));
+    }
+
+    private String generateWithRetry(AgentEntity agent, String input) {
+        RuntimeException lastException = null;
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                return aiProvider.generate(
+                        agent.getSystemPrompt(),
+                        input
+                );
+            } catch (RuntimeException ex) {
+                lastException = ex;
+
+                System.out.println(
+                        "AI attempt " + attempt +
+                                " failed for agent " + agent.getName() +
+                                ": " + ex.getMessage()
+                );
+
+                if (attempt < 3) {
+                    sleepBeforeRetry();
+                }
+            }
+        }
+
+        throw lastException;
+    }
+
+    private void sleepBeforeRetry() {
+        try {
+            Thread.sleep(5000);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("AI retry interrupted", ex);
+        }
     }
 
     @Transactional(readOnly = true)
