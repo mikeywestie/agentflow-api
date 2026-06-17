@@ -26,7 +26,7 @@ app:
     allowed-origins: ${FRONTEND_URL:http://localhost:5173}
   ai:
     gemini-api-key: ${GEMINI_API_KEY:}
-    gemini-model: ${GEMINI_MODEL:gemini-1.5-flash}
+    gemini-model: ${GEMINI_MODEL:gemini-2.5-flash-lite}
 
 springdoc:
   swagger-ui:
