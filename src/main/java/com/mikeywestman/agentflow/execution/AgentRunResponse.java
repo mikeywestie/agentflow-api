@@ -13,5 +13,9 @@ public record AgentRunResponse(
         String output,
         ExecutionStatus status,
         LocalDateTime startedAt,
-        LocalDateTime completedAt
+        LocalDateTime completedAt,
+        Long durationMs,
+        int outputWordCount,
+        String providerName,
+        String modelName
 ) {}
