@@ -26,13 +26,10 @@ public class AgentOrchestratorService {
     @Transactional
     public ExecutionResponse run(RunExecutionRequest request) {
         WorkflowEntity workflow = resolveWorkflow(request.workflowId());
-        AiProvider provider = selectProvider();
 
         ExecutionEntity execution = ExecutionEntity.builder()
                 .workflow(workflow)
                 .request(request.request())
-                .providerName(provider.providerName())
-                .modelName(provider.modelName())
                 .status(ExecutionStatus.RUNNING)
                 .startedAt(LocalDateTime.now())
                 .build();
@@ -45,13 +42,13 @@ public class AgentOrchestratorService {
             LocalDateTime startedAt = LocalDateTime.now();
 
             try {
-                String output = provider.generate(agent.getSystemPrompt(), currentInput);
+                ProviderResult result = generateWithFallback(agent, currentInput);
                 LocalDateTime completedAt = LocalDateTime.now();
-                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, output, provider.providerName(), provider.modelName(), ExecutionStatus.COMPLETED, startedAt, completedAt));
-                currentInput = output;
+                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, result.output(), result.providerName(), result.modelName(), ExecutionStatus.COMPLETED, startedAt, completedAt));
+                currentInput = result.output();
             } catch (RuntimeException ex) {
                 LocalDateTime completedAt = LocalDateTime.now();
-                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, ex.getMessage(), provider.providerName(), provider.modelName(), ExecutionStatus.FAILED, startedAt, completedAt));
+                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, ex.getMessage(), null, null, ExecutionStatus.FAILED, startedAt, completedAt));
                 failed = true;
                 break;
             }
@@ -60,6 +57,7 @@ public class AgentOrchestratorService {
         execution.setCompletedAt(LocalDateTime.now());
         execution.setFinalOutput(currentInput);
         execution.setStatus(failed ? ExecutionStatus.PARTIAL_SUCCESS : ExecutionStatus.COMPLETED);
+        applyExecutionProviderSummary(execution);
         return toResponse(executionRepository.save(execution));
     }
 
@@ -80,21 +78,52 @@ public class AgentOrchestratorService {
         return workflowRepository.findByEnabledTrueOrderByNameAsc().stream().findFirst().orElseThrow(() -> new IllegalArgumentException("No enabled workflow found"));
     }
 
-    private AiProvider selectProvider() {
+    private ProviderResult generateWithFallback(AgentEntity agent, String input) {
         List<AiProvider> orderedProviders = new ArrayList<>(aiProviders);
         orderedProviders.sort(AnnotationAwareOrderComparator.INSTANCE);
 
+        List<String> errors = new ArrayList<>();
         for (AiProvider provider : orderedProviders) {
-            if (provider instanceof StubAiProvider) {
-                return provider;
+            int attempts = provider instanceof GeminiAiProvider ? 3 : 1;
+            for (int attempt = 1; attempt <= attempts; attempt++) {
+                try {
+                    String output = provider.generate(agent.getSystemPrompt(), input);
+                    return new ProviderResult(output, provider.providerName(), provider.modelName());
+                } catch (RuntimeException ex) {
+                    errors.add(provider.providerName() + " attempt " + attempt + ": " + ex.getMessage());
+                    if (attempt < attempts) {
+                        sleepBeforeRetry();
+                    }
+                }
             }
         }
 
-        if (orderedProviders.isEmpty()) {
-            throw new IllegalStateException("No AI providers are configured");
-        }
+        throw new RuntimeException("All AI providers failed: " + String.join(" | ", errors));
+    }
 
-        return orderedProviders.get(0);
+    private void sleepBeforeRetry() {
+        try {
+            Thread.sleep(1500);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("AI retry interrupted", ex);
+        }
+    }
+
+    private void applyExecutionProviderSummary(ExecutionEntity execution) {
+        List<String> providers = execution.getAgentRuns().stream()
+                .map(AgentRunEntity::getProviderName)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .toList();
+        List<String> models = execution.getAgentRuns().stream()
+                .map(AgentRunEntity::getModelName)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .toList();
+
+        execution.setProviderName(providers.isEmpty() ? null : providers.size() == 1 ? providers.get(0) : "Mixed");
+        execution.setModelName(models.isEmpty() ? null : models.size() == 1 ? models.get(0) : "Mixed");
     }
 
     private AgentRunEntity buildRun(ExecutionEntity execution, AgentEntity agent, String input, String output, String providerName, String modelName, ExecutionStatus status, LocalDateTime startedAt, LocalDateTime completedAt) {
@@ -149,4 +178,6 @@ public class AgentOrchestratorService {
         if (value == null || value.isBlank()) return 0;
         return value.trim().split("\\s+").length;
     }
+
+    private record ProviderResult(String output, String providerName, String modelName) {}
 }
