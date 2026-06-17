@@ -1,9 +1,13 @@
 package com.mikeywestman.agentflow.execution;
 
 public interface AiProvider {
-    AiGenerationResult generate(String systemPrompt, String userPrompt);
+    String generate(String systemPrompt, String userPrompt);
 
-    String providerName();
+    default String providerName() {
+        return getClass().getSimpleName();
+    }
 
-    String modelName();
+    default String modelName() {
+        return "unknown";
+    }
 }
