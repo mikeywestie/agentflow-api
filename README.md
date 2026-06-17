@@ -1,8 +1,14 @@
 # AgentFlow API
 
-AgentFlow is an AI agent orchestration platform built with Java Spring Boot.
+AgentFlow API is the Spring Boot backend for **AgentFlow**, an AI agent orchestration platform that runs user requests through a configurable workflow of specialist agents.
 
-The MVP workflow is:
+The current MVP focuses on proving the orchestration flow locally before adding production security and hosting polish.
+
+## Current version
+
+Documented state: **v0.4.0**
+
+## MVP workflow
 
 ```text
 User Request
@@ -12,60 +18,135 @@ User Request
   -> Final Output
 ```
 
-## Tech Stack
+The system stores workflows, workflow steps, executions, and individual agent runs so each generated result can be reviewed as a trace instead of only returning a single final response.
+
+## Tech stack
 
 - Java 21
 - Spring Boot 3.3.5
 - Spring Web
 - Spring Security
-- Spring Data JPA
+- Spring Data JPA / Hibernate
 - PostgreSQL
-- Flyway
-- Swagger / OpenAPI
-- JWT
-- Gemini API planned for Week 2
+- Flyway database migrations
+- Swagger / OpenAPI via Springdoc
+- JWT generation
+- Gemini API integration
+- OpenRouter planned
+- Stub AI fallback for local MVP testing
+- Docker Compose for local PostgreSQL
 
-## Week 1 Scope
+## Current MVP features
 
-This starter contains:
+- User registration and login endpoints
+- JWT token generation
+- Agent management endpoints
+- Workflow management endpoints
+- Workflow execution endpoint
+- Execution history endpoint
+- Execution detail endpoint with agent trace data
+- Planner, Builder, Reviewer workflow concept
+- AI provider abstraction through `AiProvider`
+- Gemini provider implementation
+- Stub provider for local fallback/testing
+- Retry handling for AI provider failures
+- Partial success handling when an agent fails after a previous agent completed
+- Skipped agent run records when a workflow cannot continue
+- Flyway-managed PostgreSQL schema
+- Local Docker PostgreSQL setup
+- Swagger UI for manual API testing
 
-- Auth endpoints
-- Core entities
-- Repositories
-- Agent endpoints
-- Workflow endpoints
-- Execution endpoints
-- Stub AI provider
-- Flyway database schema
-- Data seeder for Planner, Builder, Reviewer workflow
+## AI provider strategy
 
-## Run locally
+The intended provider order is:
 
-Start PostgreSQL:
+```text
+GeminiAiProvider
+  -> OpenRouterAiProvider (planned)
+  -> StubAiProvider fallback
+```
+
+Current status:
+
+- `GeminiAiProvider` is present for real AI calls.
+- `OpenRouterAiProvider` is planned as the secondary provider.
+- `StubAiProvider` exists as a safe local fallback for MVP testing.
+
+The goal is to keep the orchestration code independent from any single AI vendor by routing calls through the `AiProvider` contract.
+
+## Local development setup
+
+### Prerequisites
+
+- Java 21+
+- Maven
+- Docker Desktop
+- PostgreSQL client tooling optional
+
+### Start PostgreSQL
 
 ```bash
 docker compose up -d
 ```
 
-Run the API with Maven:
+The local database defaults are:
+
+```text
+Database: agentflow_db
+Username: agentflow_user
+Password: agentflow_pass
+Port: 5432
+```
+
+### Run the API
 
 ```bash
 mvn spring-boot:run
 ```
 
-Or open the project in IntelliJ and run `AgentFlowApiApplication`.
+Or run `AgentFlowApiApplication` from IntelliJ.
 
-Swagger:
+### Swagger UI
 
 ```text
 http://localhost:8080/swagger-ui.html
 ```
 
-## First Test Flow
+### Health check
 
-1. Start the app.
-2. Open Swagger.
-3. Register a user:
+```text
+http://localhost:8080/actuator/health
+```
+
+## Environment variables
+
+The application supports environment-based configuration. For local development, defaults are provided in `application.yml`.
+
+| Variable | Purpose | Local default |
+|---|---|---|
+| `DATABASE_URL` | JDBC URL for PostgreSQL | `jdbc:postgresql://localhost:5432/agentflow_db` |
+| `DATABASE_USERNAME` | PostgreSQL username | `agentflow_user` |
+| `DATABASE_PASSWORD` | PostgreSQL password | `agentflow_pass` |
+| `JWT_SECRET` | Secret used for signing JWTs | Local placeholder secret |
+| `JWT_EXPIRATION_MS` | JWT expiry time in milliseconds | `86400000` |
+| `FRONTEND_URL` | Allowed frontend origin for CORS | `http://localhost:5173` |
+| `GEMINI_API_KEY` | Gemini API key | empty |
+| `GEMINI_MODEL` | Gemini model name | configured in `application.yml` |
+
+Do not commit real secrets. Use local environment variables or a local `.env` file that remains ignored by Git.
+
+## First test flow
+
+1. Start PostgreSQL.
+2. Start the API.
+3. Open Swagger.
+4. Register a user.
+5. Check available agents.
+6. Check available workflows.
+7. Run a workflow execution.
+8. View the execution history and execution detail trace.
+
+### Register
 
 ```http
 POST /api/auth/register
@@ -79,19 +160,32 @@ POST /api/auth/register
 }
 ```
 
-4. Check seeded agents:
+### Login
+
+```http
+POST /api/auth/login
+```
+
+```json
+{
+  "email": "mikey@example.com",
+  "password": "Password123"
+}
+```
+
+### List agents
 
 ```http
 GET /api/agents
 ```
 
-5. Check seeded workflow:
+### List workflows
 
 ```http
 GET /api/workflows
 ```
 
-6. Run the default workflow:
+### Run workflow
 
 ```http
 POST /api/executions/run
@@ -99,50 +193,78 @@ POST /api/executions/run
 
 ```json
 {
-  "request": "Build a quotation management system for electricians."
+  "request": "Build a quotation management system for electrical contractors."
 }
 ```
 
-Because Week 1 uses `StubAiProvider`, the response will not call Gemini yet. Week 2 replaces this with the real Gemini provider.
+When a `workflowId` is supplied, the API runs that workflow. When omitted, the API can resolve an enabled workflow automatically.
 
-## Week 2 Plan
+## Main API areas
 
-Add:
+| Area | Base path | Purpose |
+|---|---|---|
+| Auth | `/api/auth` | Register and login users |
+| Agents | `/api/agents` | Create and list AI agents |
+| Workflows | `/api/workflows` | Create and list workflows |
+| Executions | `/api/executions` | Run workflows and inspect execution history |
 
-- `GeminiAiProvider`
-- API client using `RestClient`
-- Configurable model name
-- Real Planner -> Builder -> Reviewer outputs
+## Security status
 
-## Week 3 Plan
+The current local MVP intentionally keeps non-auth endpoints open to make Postman, Swagger, and frontend testing faster.
 
-Build `agentflow-ui` with:
-
-- Login
-- Dashboard
-- Agents
-- Workflows
-- Run Workflow
-- Execution History
-- Execution Detail
-
-## Week 4 Plan
-
-Deploy:
-
-- Backend: Render
-- Database: Supabase PostgreSQL
-- Frontend: GitHub Pages / Netlify
-- AI Brain: Gemini API
-
-## Important MVP Notes
-
-For Week 1, the security configuration permits all non-auth endpoints to make learning and Swagger testing easier.
-
-Before production/demo polish, add:
+Before hosting or public demo usage, the security layer should be tightened with:
 
 - JWT authentication filter
 - Role-based endpoint protection
-- Refresh token or safer session strategy
-- Better error logging
-- Render/Supabase environment configuration
+- Safer user role assignment
+- Strong production `JWT_SECRET`
+- Strict production CORS origin configuration
+- Environment-specific configuration
+
+Current approach:
+
+```text
+Local development first -> secure before hosting
+```
+
+## Current limitations
+
+- OpenRouter provider is planned but not implemented yet.
+- Production-grade JWT request filtering is not enabled yet.
+- Registered users are currently treated as MVP admin users.
+- No refresh token/session hardening yet.
+- No hosted environment configuration has been finalized yet.
+- Error handling exists, but can be expanded with more detailed logging and structured diagnostics.
+
+## Related project
+
+The frontend dashboard lives in:
+
+```text
+mikeywestie/agentflow-ui
+```
+
+## Roadmap
+
+### Backend next
+
+- Finalize provider chain: Gemini -> OpenRouter -> Stub fallback
+- Add `.env.example`
+- Confirm `.env` is ignored
+- Add provider selection/fallback tests
+- Add JWT filter before hosting
+- Add role-based authorization before hosting
+- Prepare Render/Supabase configuration notes
+
+### UI next
+
+- Improve early MVP UI layout
+- Add Tailwind CSS
+- Move API URL to `VITE_API_BASE_URL`
+- Add better dashboard sections
+- Improve execution trace design
+- Add loading, empty, and error states
+
+## Portfolio note
+
+AgentFlow demonstrates backend architecture skills around API design, workflow orchestration, persistence, AI provider abstraction, execution tracing, retry handling, and local-first development using Spring Boot and PostgreSQL.
