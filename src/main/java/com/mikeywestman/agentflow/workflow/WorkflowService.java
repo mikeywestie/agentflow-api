@@ -21,6 +21,12 @@ public class WorkflowService {
         return workflowRepository.findAll().stream().map(this::toResponse).toList();
     }
 
+    public WorkflowResponse findById(UUID id) {
+        return workflowRepository.findById(id)
+                .map(this::toResponse)
+                .orElseThrow(() -> new IllegalArgumentException("Workflow not found: " + id));
+    }
+
     @Transactional
     public WorkflowResponse create(WorkflowRequest request) {
         WorkflowEntity workflow = WorkflowEntity.builder()
@@ -30,8 +36,46 @@ public class WorkflowService {
                 .steps(new ArrayList<>())
                 .build();
 
+        applySteps(workflow, request.agentIds());
+        return toResponse(workflowRepository.save(workflow));
+    }
+
+    @Transactional
+    public WorkflowResponse update(UUID id, WorkflowRequest request) {
+        WorkflowEntity workflow = workflowRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Workflow not found: " + id));
+
+        workflow.setName(request.name());
+        workflow.setDescription(request.description());
+        workflow.setEnabled(request.enabled());
+        workflow.getSteps().clear();
+        applySteps(workflow, request.agentIds());
+
+        return toResponse(workflowRepository.save(workflow));
+    }
+
+    @Transactional
+    public WorkflowResponse setEnabled(UUID id, boolean enabled) {
+        WorkflowEntity workflow = workflowRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Workflow not found: " + id));
+
+        workflow.setEnabled(enabled);
+        return toResponse(workflowRepository.save(workflow));
+    }
+
+    @Transactional
+    public void delete(UUID id) {
+        if (!workflowRepository.existsById(id)) {
+            throw new IllegalArgumentException("Workflow not found: " + id);
+        }
+
+        workflowRepository.deleteById(id);
+    }
+
+    private void applySteps(WorkflowEntity workflow, List<UUID> agentIds) {
         int order = 1;
-        for (UUID agentId : request.agentIds()) {
+
+        for (UUID agentId : agentIds) {
             AgentEntity agent = agentRepository.findById(agentId)
                     .orElseThrow(() -> new IllegalArgumentException("Agent not found: " + agentId));
 
@@ -41,8 +85,6 @@ public class WorkflowService {
                     .stepOrder(order++)
                     .build());
         }
-
-        return toResponse(workflowRepository.save(workflow));
     }
 
     public WorkflowResponse toResponse(WorkflowEntity workflow) {
