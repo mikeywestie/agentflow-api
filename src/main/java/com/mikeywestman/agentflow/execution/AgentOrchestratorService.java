@@ -80,17 +80,17 @@ public class AgentOrchestratorService {
         List<AiProvider> orderedProviders = new ArrayList<>(aiProviders);
         orderedProviders.sort(AnnotationAwareOrderComparator.INSTANCE);
 
-        RuntimeException lastError = null;
+        List<String> errors = new ArrayList<>();
         for (AiProvider provider : orderedProviders) {
             try {
                 String output = provider.generate(agent.getSystemPrompt(), input);
                 return new ProviderResult(output, provider.providerName(), provider.modelName());
             } catch (RuntimeException ex) {
-                lastError = ex;
+                errors.add(provider.providerName() + ": " + ex.getMessage());
             }
         }
 
-        throw lastError == null ? new RuntimeException("No AI providers are available") : lastError;
+        throw new RuntimeException("All AI providers failed: " + String.join(" | ", errors));
     }
 
     private AgentRunEntity buildRun(ExecutionEntity execution, AgentEntity agent, String input, String output, String providerName, String modelName, ExecutionStatus status, LocalDateTime startedAt, LocalDateTime completedAt) {
