@@ -5,11 +5,13 @@ import com.mikeywestman.agentflow.workflow.WorkflowEntity;
 import com.mikeywestman.agentflow.workflow.WorkflowRepository;
 import com.mikeywestman.agentflow.workflow.WorkflowStepEntity;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.annotation.AnnotationAwareOrderComparator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,7 +21,7 @@ public class AgentOrchestratorService {
 
     private final WorkflowRepository workflowRepository;
     private final ExecutionRepository executionRepository;
-    private final AiProvider aiProvider;
+    private final List<AiProvider> aiProviders;
 
     @Transactional
     public ExecutionResponse run(RunExecutionRequest request) {
@@ -39,13 +41,13 @@ public class AgentOrchestratorService {
             LocalDateTime startedAt = LocalDateTime.now();
 
             try {
-                String output = aiProvider.generate(agent.getSystemPrompt(), currentInput);
+                ProviderResult result = generate(agent, currentInput);
                 LocalDateTime completedAt = LocalDateTime.now();
-                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, output, ExecutionStatus.COMPLETED, startedAt, completedAt));
-                currentInput = output;
+                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, result.output(), result.providerName(), result.modelName(), ExecutionStatus.COMPLETED, startedAt, completedAt));
+                currentInput = result.output();
             } catch (RuntimeException ex) {
                 LocalDateTime completedAt = LocalDateTime.now();
-                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, ex.getMessage(), ExecutionStatus.FAILED, startedAt, completedAt));
+                execution.getAgentRuns().add(buildRun(execution, agent, currentInput, ex.getMessage(), null, null, ExecutionStatus.FAILED, startedAt, completedAt));
                 failed = true;
                 break;
             }
@@ -74,7 +76,24 @@ public class AgentOrchestratorService {
         return workflowRepository.findByEnabledTrueOrderByNameAsc().stream().findFirst().orElseThrow(() -> new IllegalArgumentException("No enabled workflow found"));
     }
 
-    private AgentRunEntity buildRun(ExecutionEntity execution, AgentEntity agent, String input, String output, ExecutionStatus status, LocalDateTime startedAt, LocalDateTime completedAt) {
+    private ProviderResult generate(AgentEntity agent, String input) {
+        List<AiProvider> orderedProviders = new ArrayList<>(aiProviders);
+        orderedProviders.sort(AnnotationAwareOrderComparator.INSTANCE);
+
+        RuntimeException lastError = null;
+        for (AiProvider provider : orderedProviders) {
+            try {
+                String output = provider.generate(agent.getSystemPrompt(), input);
+                return new ProviderResult(output, provider.providerName(), provider.modelName());
+            } catch (RuntimeException ex) {
+                lastError = ex;
+            }
+        }
+
+        throw lastError == null ? new RuntimeException("No AI providers are available") : lastError;
+    }
+
+    private AgentRunEntity buildRun(ExecutionEntity execution, AgentEntity agent, String input, String output, String providerName, String modelName, ExecutionStatus status, LocalDateTime startedAt, LocalDateTime completedAt) {
         return AgentRunEntity.builder()
                 .execution(execution)
                 .agent(agent)
@@ -82,8 +101,8 @@ public class AgentOrchestratorService {
                 .agentType(agent.getType())
                 .input(input == null ? "" : input)
                 .output(output == null ? "" : output)
-                .providerName(status == ExecutionStatus.COMPLETED ? aiProvider.providerName() : null)
-                .modelName(status == ExecutionStatus.COMPLETED ? aiProvider.modelName() : null)
+                .providerName(providerName)
+                .modelName(modelName)
                 .status(status)
                 .startedAt(startedAt)
                 .completedAt(completedAt)
@@ -126,4 +145,6 @@ public class AgentOrchestratorService {
         if (value == null || value.isBlank()) return 0;
         return value.trim().split("\\s+").length;
     }
+
+    private record ProviderResult(String output, String providerName, String modelName) {}
 }
