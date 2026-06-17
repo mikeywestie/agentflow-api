@@ -32,6 +32,12 @@ public class ExecutionEntity {
     @Column(name = "final_output", columnDefinition = "TEXT")
     private String finalOutput;
 
+    @Column(name = "provider_name", length = 80)
+    private String providerName;
+
+    @Column(name = "model_name", length = 160)
+    private String modelName;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private ExecutionStatus status;
