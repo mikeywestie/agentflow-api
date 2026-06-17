@@ -1,6 +1,7 @@
 package com.mikeywestman.agentflow.execution;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -8,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@Order(2)
 public class OpenRouterAiProvider implements AiProvider {
 
     private final RestClient restClient;
@@ -16,7 +18,7 @@ public class OpenRouterAiProvider implements AiProvider {
 
     public OpenRouterAiProvider(
             @Value("${app.ai.openrouter-api-key:}") String apiKey,
-            @Value("${app.ai.openrouter-model:}") String model
+            @Value("${app.ai.openrouter-model:openai/gpt-4o-mini}") String model
     ) {
         this.apiKey = apiKey;
         this.model = model;
@@ -26,13 +28,9 @@ public class OpenRouterAiProvider implements AiProvider {
     }
 
     @Override
-    public String generate(String systemPrompt, String userPrompt) {
+    public AiGenerationResult generate(String systemPrompt, String userPrompt) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("OPENROUTER_API_KEY is missing.");
-        }
-
-        if (model == null || model.isBlank()) {
-            throw new IllegalStateException("OPENROUTER_MODEL is missing.");
         }
 
         Map<String, Object> body = Map.of(
@@ -52,7 +50,17 @@ public class OpenRouterAiProvider implements AiProvider {
                 .retrieve()
                 .body(Map.class);
 
-        return extractText(response);
+        return new AiGenerationResult(extractText(response), providerName(), modelName());
+    }
+
+    @Override
+    public String providerName() {
+        return "OpenRouter";
+    }
+
+    @Override
+    public String modelName() {
+        return model;
     }
 
     private String extractText(Map response) {
