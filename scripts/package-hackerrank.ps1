@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "Building project..."
+Write-Host "Building current branch before packaging..."
 mvn -DskipTests package
 
 if (!(Test-Path $SubmissionDir)) {
@@ -17,41 +17,80 @@ $logTxt = "log.txt"
 
 if (Test-Path $codeZip) { Remove-Item $codeZip -Force }
 
-Write-Host "Creating code.zip..."
-$exclude = @(
-    ".git/*",
-    "target/*",
-    "dataset/*",
-    "data/*",
-    "submission/*",
-    "node_modules/*",
-    ".idea/*",
-    ".vscode/*",
-    "*.db",
-    "*.sqlite",
-    "output.csv",
-    "sample_output.csv",
-    "log.txt",
-    "claims-review.txt"
-)
-
+Write-Host "Creating minimal HackerRank code.zip..."
 $temp = Join-Path $env:TEMP ("agentflow-hackerrank-code-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $temp | Out-Null
 
-$root = (Resolve-Path ".").Path
-Get-ChildItem -Path . -Recurse -File | ForEach-Object {
-    $relative = $_.FullName.Substring($root.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
-    $relative = $relative -replace "\\", "/"
-    $skip = $false
-    foreach ($pattern in $exclude) {
-        if ($relative -like $pattern) { $skip = $true; break }
-    }
-    if (-not $skip) {
-        $dest = Join-Path $temp $relative
-        $destDir = Split-Path $dest -Parent
-        if (!(Test-Path $destDir)) { New-Item -ItemType Directory -Path $destDir | Out-Null }
-        Copy-Item $_.FullName $dest
-    }
+# Minimal Maven project for the challenge submission. This avoids shipping unrelated AgentFlow API code.
+$minimalPom = @'
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.mikeywestman</groupId>
+    <artifactId>hackerrank-multimodal-claims-review</artifactId>
+    <version>1.0.0</version>
+    <name>HackerRank Multi-Modal Claims Review</name>
+    <description>Damage-claim evidence review workflow for HackerRank Orchestrate.</description>
+
+    <properties>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jackson.version>2.17.2</jackson.version>
+        <exec.maven.plugin.version>3.3.0</exec.maven.plugin.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec.maven.plugin.version}</version>
+                <configuration>
+                    <mainClass>com.mikeywestman.agentflow.hackerrankclaims.clean.CleanClaimsCli</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+'@
+Set-Content -Path (Join-Path $temp "pom.xml") -Value $minimalPom -Encoding UTF8
+
+# Challenge source only.
+$sourceRoot = "src\main\java\com\mikeywestman\agentflow\hackerrankclaims\clean"
+$destSourceRoot = Join-Path $temp $sourceRoot
+New-Item -ItemType Directory -Path $destSourceRoot -Force | Out-Null
+Copy-Item "$sourceRoot\*" $destSourceRoot -Recurse -Force
+
+# Scripts useful for reproducibility.
+$destScripts = Join-Path $temp "scripts"
+New-Item -ItemType Directory -Path $destScripts -Force | Out-Null
+Copy-Item "scripts\run-hackerrank-claims.ps1" $destScripts -Force
+
+# README and evaluation material.
+if (Test-Path "README_HACKERRANK_CLAIMS.md") {
+    Copy-Item "README_HACKERRANK_CLAIMS.md" (Join-Path $temp "README_HACKERRANK_CLAIMS.md") -Force
+}
+if (Test-Path "evaluation") {
+    Copy-Item "evaluation" (Join-Path $temp "evaluation") -Recurse -Force
 }
 
 Compress-Archive -Path (Join-Path $temp "*") -DestinationPath $codeZip -Force
