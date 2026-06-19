@@ -35,7 +35,16 @@ public class CleanClaimsCli {
         for (ClaimRow row : rows) {
             ClaimPlan plan = planner.plan(row);
             UserHistory history = histories.get(row.userId());
-            VisionDecision decision = visionProvider.analyze(row, plan, history, config.imageRoot());
+            VisionDecision decision;
+            try {
+                decision = visionProvider.analyze(row, plan, history, config.imageRoot());
+            } catch (Exception ex) {
+                decision = visionFailureDecision(row, plan, history, ex);
+                audit.write("vision_failure", Map.of(
+                        "user_id", row.userId(),
+                        "error", ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage()
+                ));
+            }
             OutputRecord output = outputMapper.map(row, plan, decision);
             outputs.add(output);
             audit.write("claim_reviewed", Map.of(
@@ -56,6 +65,27 @@ public class CleanClaimsCli {
 
         System.out.println("Wrote " + outputs.size() + " rows to " + config.output().toAbsolutePath());
         System.out.println("Audit log: " + config.audit().toAbsolutePath());
+    }
+
+    private static VisionDecision visionFailureDecision(ClaimRow row, ClaimPlan plan, UserHistory history, Exception ex) {
+        List<String> risks = new ArrayList<>();
+        risks.add("manual_review_required");
+        if (history != null && history.risky()) risks.add("user_history_risk");
+        String message = ex.getMessage() == null ? ex.getClass().getSimpleName() : ex.getMessage();
+        return new VisionDecision(
+                false,
+                Texts.clean("Vision processing failed: " + message),
+                risks,
+                Texts.allowedIssue(plan.issueType()),
+                Texts.allowedPart(plan.objectPart(), plan.claimObject()),
+                "not_enough_information",
+                "Vision processing failed and requires manual review.",
+                List.of(),
+                false,
+                "unknown",
+                "error-fallback",
+                ""
+        );
     }
 
     private static VisionProvider createProvider(Config config) {
