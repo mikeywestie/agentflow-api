@@ -11,3 +11,17 @@ logs/
 application-local.properties
 
 node_modules/
+
+# HackerRank local dataset
+dataset/
+
+# Generated outputs
+output.csv
+sample_output.csv
+
+# Audit logs
+log.txt
+
+# Submission artifacts
+submission/
+
