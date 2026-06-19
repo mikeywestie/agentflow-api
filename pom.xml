@@ -112,7 +112,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>${exec.maven.plugin.version}</version>
                 <configuration>
-                    <mainClass>com.mikeywestman.agentflow.hackerrankclaims.HackerRankClaimsCliV2</mainClass>
+                    <mainClass>com.mikeywestman.agentflow.hackerrankclaims.clean.CleanClaimsCli</mainClass>
                 </configuration>
             </plugin>
         </plugins>
