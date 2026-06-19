@@ -28,15 +28,20 @@ $exclude = @(
     ".idea/*",
     ".vscode/*",
     "*.db",
-    "*.sqlite"
+    "*.sqlite",
+    "output.csv",
+    "sample_output.csv",
+    "log.txt",
+    "claims-review.txt"
 )
 
 $temp = Join-Path $env:TEMP ("agentflow-hackerrank-code-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $temp | Out-Null
 
+$root = (Resolve-Path ".").Path
 Get-ChildItem -Path . -Recurse -File | ForEach-Object {
-    $relative = Resolve-Path -Relative $_.FullName
-    $relative = $relative.TrimStart(".", "\\", "/")
+    $relative = $_.FullName.Substring($root.Length).TrimStart([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $relative = $relative -replace "\\", "/"
     $skip = $false
     foreach ($pattern in $exclude) {
         if ($relative -like $pattern) { $skip = $true; break }
