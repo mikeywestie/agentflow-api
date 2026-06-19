@@ -21,6 +21,7 @@
         <java.version>21</java.version>
         <springdoc.version>2.6.0</springdoc.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <exec.maven.plugin.version>3.3.0</exec.maven.plugin.version>
     </properties>
 
     <dependencies>
@@ -104,6 +105,14 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec.maven.plugin.version}</version>
+                <configuration>
+                    <mainClass>com.mikeywestman.agentflow.hackerrankclaims.HackerRankClaimsCli</mainClass>
                 </configuration>
             </plugin>
         </plugins>
