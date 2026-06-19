@@ -43,10 +43,27 @@ public class GitHubModelsVisionProvider implements VisionProvider {
     private JsonNode callModel(ClaimRow row, ClaimPlan plan, UserHistory history, Path imageRoot) throws Exception {
         List<Map<String, Object>> content = new ArrayList<>();
         content.add(Map.of("type", "text", "text", prompt(row, plan, history)));
+        int supportedImages = 0;
+        List<String> skippedImages = new ArrayList<>();
         for (String imagePath : row.imagePaths()) {
             Path file = imageRoot.resolve(imagePath).normalize();
+            String mime = mime(file);
+            if (!mime.startsWith("image/")) {
+                skippedImages.add(imageId(imagePath));
+                continue;
+            }
+            supportedImages++;
             content.add(Map.of("type", "text", "text", "Image ID: " + imageId(imagePath) + " path: " + imagePath));
-            content.add(Map.of("type", "image_url", "image_url", Map.of("url", "data:" + mime(file) + ";base64," + Base64.getEncoder().encodeToString(Files.readAllBytes(file)))));
+            content.add(Map.of(
+                    "type", "image_url",
+                    "image_url", Map.of("url", "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(Files.readAllBytes(file)))
+            ));
+        }
+        if (!skippedImages.isEmpty()) {
+            content.add(Map.of("type", "text", "text", "Unsupported submitted image IDs skipped because the provider cannot read their format: " + String.join(";", skippedImages)));
+        }
+        if (supportedImages == 0) {
+            throw new IOException("No submitted images are in a provider-supported format.");
         }
 
         Map<String, Object> body = new LinkedHashMap<>();
@@ -61,12 +78,24 @@ public class GitHubModelsVisionProvider implements VisionProvider {
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.writeValueAsString(body)))
                 .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = sendWithRetry(request);
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
             throw new IOException("GitHub Models HTTP " + response.statusCode() + ": " + response.body());
         }
         String modelText = JSON.readTree(response.body()).path("choices").path(0).path("message").path("content").asText("{}");
         return looseJson(modelText);
+    }
+
+    private HttpResponse<String> sendWithRetry(HttpRequest request) throws IOException, InterruptedException {
+        HttpResponse<String> response = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 429) {
+                return response;
+            }
+            Thread.sleep(attempt * 5000L);
+        }
+        return response;
     }
 
     private String prompt(ClaimRow row, ClaimPlan plan, UserHistory history) {
@@ -151,11 +180,21 @@ Allowed risk flags: none, blurry_image, cropped_or_obstructed, low_light_or_glar
         return dot > 0 ? fileName.substring(0, dot) : fileName;
     }
 
-    private static String mime(Path file) {
-        String lower = file.toString().toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".png")) return "image/png";
-        if (lower.endsWith(".webp")) return "image/webp";
-        return "image/jpeg";
+    private static String mime(Path file) throws IOException {
+        byte[] bytes = Files.readAllBytes(file);
+        if (bytes.length >= 3 && bytes[0] == (byte) 0xFF && bytes[1] == (byte) 0xD8 && bytes[2] == (byte) 0xFF) {
+            return "image/jpeg";
+        }
+        if (bytes.length >= 8 && bytes[0] == (byte) 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47) {
+            return "image/png";
+        }
+        if (bytes.length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46 && bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50) {
+            return "image/webp";
+        }
+        if (bytes.length >= 12 && bytes[4] == 0x66 && bytes[5] == 0x74 && bytes[6] == 0x79 && bytes[7] == 0x70 && bytes[8] == 0x61 && bytes[9] == 0x76 && bytes[10] == 0x69 && bytes[11] == 0x66) {
+            return "application/octet-stream";
+        }
+        return "application/octet-stream";
     }
 
     @Override
